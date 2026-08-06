@@ -2,7 +2,7 @@
 
 DataBoard is a full-stack CSV analytics dashboard. Authenticated users upload datasets, preview rows, compute statistics on numeric columns, and build bar, line, and scatter charts.
 
-**Repository:** https://github.com/Shiva70199/DataBoard
+**Repository:** https://github.com/Shiva70199/databoard
 
 ## Architecture
 
