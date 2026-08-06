@@ -30,9 +30,7 @@ DataBoard/
 **Frontend:** Next.js 14, React, Tailwind CSS, Apache ECharts  
 **Backend:** FastAPI, Pandas, SQLAlchemy, SQLite, JWT, bcrypt
 
-## How to Run (no Cursor required)
-
-You do **not** need Cursor to run or test this app. Use any terminal (PowerShell, CMD, or VS Code terminal) and a web browser.
+## How to Run 
 
 ### 1. Start the backend
 
