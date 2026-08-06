@@ -1,3 +1,5 @@
+"use client";
+
 import type { ReactNode } from "react";
 import { AuthLoadingShell } from "@/lib/auth";
 import { Navbar } from "./Navbar";

@@ -1,0 +1,6 @@
+backend/.venv
+backend/uploads
+backend/databoard.db
+backend/test_uploads
+backend/__pycache__
+backend/.pytest_cache

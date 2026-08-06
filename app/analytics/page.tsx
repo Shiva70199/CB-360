@@ -1,12 +1,21 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { LayoutShell } from "@/components/LayoutShell";
-import { EChartsPanel, type ChartType } from "@/components/EChartsPanel";
+import type { ChartType } from "@/components/EChartsPanel";
 import { useAuth, useRequireAuth } from "@/lib/auth";
 import { useToast } from "@/components/Toast";
 import { ApiError, api, type ColumnInfo, type ComputeResponse, type Dataset } from "@/lib/api";
+
+const EChartsPanel = dynamic(
+  () => import("@/components/EChartsPanel").then((m) => m.EChartsPanel),
+  {
+    ssr: false,
+    loading: () => <div className="h-72 animate-pulse rounded-xl bg-neutral-200" />,
+  }
+);
 
 async function loadAllDatasets(token: string): Promise<Dataset[]> {
   const first = await api.listDatasets(token, 1, 50);

@@ -177,6 +177,31 @@ Coverage includes:
 - Chart Y-axis must be a numeric column; X can be any column
 - SQLite is sufficient for the take-home scope
 
+## Deployment (Vercel + backend)
+
+**Vercel hosts the Next.js frontend only.** The FastAPI backend must be deployed separately (Render, Railway, Fly.io, etc.).
+
+### Vercel (frontend)
+
+1. Import [github.com/Shiva70199/databoard](https://github.com/Shiva70199/databoard) on [vercel.com](https://vercel.com)
+2. Framework: **Next.js** — Root Directory: `.` (repo root, not `backend/`)
+3. Add environment variable:
+   - `NEXT_PUBLIC_API_URL` = your deployed backend URL (e.g. `https://your-api.onrender.com`)
+4. Deploy
+
+### Backend (example: Render)
+
+1. Create a **Web Service** from the same repo
+2. Root Directory: `backend`
+3. Build: `pip install -r requirements.txt`
+4. Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+5. Set `CORS_ORIGINS` to your Vercel URL (e.g. `https://databoard.vercel.app`)
+6. Redeploy Vercel after the backend URL is live
+
+### Vercel crash fix (ECharts)
+
+Apache ECharts requires browser APIs and must not run during server-side rendering. The app loads ECharts client-only via `next/dynamic` with `ssr: false`.
+
 ## Future Improvements
 
 - Refresh tokens and httpOnly cookie storage
