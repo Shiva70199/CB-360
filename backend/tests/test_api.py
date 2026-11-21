@@ -57,16 +57,39 @@ class TestAuthentication:
     def test_register_and_login(self, client):
         res = client.post("/auth/register", json={"email": "a@test.com", "password": "pass1234"})
         assert res.status_code == 201
-        assert res.json()["email"] == "a@test.com"
+        body = res.json()
+        assert body["email"] == "a@test.com"
+        assert isinstance(body["id"], int)
+        assert body["created_at"]
 
         res = client.post("/auth/login", json={"email": "a@test.com", "password": "pass1234"})
         assert res.status_code == 200
-        assert "access_token" in res.json()
+        token = res.json()
+        assert token["token_type"] == "bearer"
+        assert token["access_token"]
 
     def test_duplicate_register(self, client):
         client.post("/auth/register", json={"email": "dup@test.com", "password": "pass1234"})
         res = client.post("/auth/register", json={"email": "dup@test.com", "password": "pass1234"})
         assert res.status_code == 409
+
+    def test_login_rejects_wrong_password(self, client):
+        client.post("/auth/register", json={"email": "wrong@test.com", "password": "pass1234"})
+        res = client.post("/auth/login", json={"email": "wrong@test.com", "password": "not-the-password"})
+        assert res.status_code == 401
+        assert "access_token" not in res.json()
+
+    def test_login_rejects_unknown_email(self, client):
+        res = client.post("/auth/login", json={"email": "missing@test.com", "password": "pass1234"})
+        assert res.status_code == 401
+
+    def test_register_rejects_short_password(self, client):
+        res = client.post("/auth/register", json={"email": "short@test.com", "password": "x"})
+        assert res.status_code == 422
+
+    def test_me_without_token(self, client):
+        res = client.get("/auth/me")
+        assert res.status_code == 401
 
     def test_protected_route_requires_auth(self, client):
         res = client.get("/datasets")

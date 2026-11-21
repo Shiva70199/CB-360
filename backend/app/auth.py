@@ -1,8 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from passlib.exc import MissingBackendError, UnknownHashError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -12,11 +13,22 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    try:
+        return pwd_context.hash(password)
+    except (MissingBackendError, TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Password authentication is unavailable.",
+        ) from None
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    try:
+        return pwd_context.verify(plain, hashed)
+    except (MissingBackendError, UnknownHashError, ValueError, TypeError):
+        # A corrupt or unrecognized hash is a failed login, not a server error.
+        # bcrypt ValueError is raised for a malformed hash, not for a wrong password.
+        return False
 
 
 def enforce_production_secret() -> None:
@@ -28,7 +40,7 @@ def enforce_production_secret() -> None:
 
 
 def create_access_token(user_id: int) -> str:
-    expire = datetime.utcnow() + timedelta(minutes=settings.jwt_expire_minutes)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
     payload = {"sub": str(user_id), "exp": expire}
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 

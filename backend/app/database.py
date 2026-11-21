@@ -1,7 +1,10 @@
 import os
+import sys
+import threading
 
 from fastapi import HTTPException, status
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -38,8 +41,16 @@ def production_database_url() -> str | None:
 
 def _build_engine(url: str):
     if url.startswith("postgresql"):
-        # NullPool: one connection per request, which fits Neon pooled serverless use.
-        return create_engine(url, poolclass=NullPool, pool_pre_ping=True)
+        # Neon’s pooled URL is PgBouncer in transaction mode. psycopg 3 prepares
+        # statements on the client connection, and that pooler may bind the next
+        # statement to a different server connection. Keep one short-lived
+        # connection per request and do not prepare.
+        return create_engine(
+            url,
+            poolclass=NullPool,
+            pool_pre_ping=True,
+            connect_args={"prepare_threshold": None},
+        )
     connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
     return create_engine(url, connect_args=connect_args)
 
@@ -73,14 +84,82 @@ def database_status() -> tuple[bool, str]:
         return False, "unavailable"
 
 
+_schema_ready = False
+_schema_lock = threading.Lock()
+
+
+def _schema_binds():
+    """Prefer the direct Neon URL for DDL, then the pooled runtime engine."""
+    binds = []
+    raw = os.getenv("DATABASE_URL_UNPOOLED", "").strip()
+    if raw:
+        url = normalize_database_url(raw)
+        if url.startswith("postgresql"):
+            binds.append(_build_engine(url))
+    if engine is not None:
+        binds.append(engine)
+    return binds
+
+
+def ensure_schema() -> None:
+    """Create missing tables once per process. Does not drop or alter existing data."""
+    global _schema_ready
+    if _schema_ready or engine is None:
+        return
+    if not str(engine.url).startswith("postgresql"):
+        _schema_ready = True
+        return
+    with _schema_lock:
+        if _schema_ready:
+            return
+        # Import after startup so model tables are registered on Base.metadata.
+        from app import models  # noqa: F401
+
+        for bind in _schema_binds():
+            try:
+                Base.metadata.create_all(bind=bind)
+                _schema_ready = True
+                return
+            except Exception as exc:
+                print(f"schema_init_failed {type(exc).__name__}", file=sys.stderr)
+            finally:
+                if bind is not engine:
+                    bind.dispose()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The database schema is not ready. Run python scripts/init_db.py with DATABASE_URL_UNPOOLED.",
+        ) from None
+
+
+def _quiet_session_call(db, method: str) -> None:
+    try:
+        getattr(db, method)()
+    except Exception as exc:
+        print(f"db_{method}_failed {type(exc).__name__}", file=sys.stderr)
+
+
 def get_db():
     if SessionLocal is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=_MISSING_DATABASE_DETAIL,
         )
+    ensure_schema()
     db = SessionLocal()
     try:
         yield db
+    except HTTPException:
+        _quiet_session_call(db, "rollback")
+        raise
+    except SQLAlchemyError as exc:
+        _quiet_session_call(db, "rollback")
+        print(f"database_request_failed {type(exc).__name__}", file=sys.stderr)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The database could not complete that request.",
+        ) from None
+    except Exception:
+        _quiet_session_call(db, "rollback")
+        raise
     finally:
-        db.close()
+        _quiet_session_call(db, "close")

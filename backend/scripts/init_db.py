@@ -46,7 +46,12 @@ def main() -> None:
     url = _postgres_url()
     scheme = url.split("://", 1)[0]
     print(f"Connecting with driver {scheme}.")
-    engine = create_engine(url, poolclass=NullPool, pool_pre_ping=True)
+    engine = create_engine(
+        url,
+        poolclass=NullPool,
+        pool_pre_ping=True,
+        connect_args={"prepare_threshold": None},
+    )
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))

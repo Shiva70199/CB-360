@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -43,7 +44,11 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="Email already registered.")
     user = User(email=email, hashed_password=hash_password(payload.password))
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Email already registered.")
     db.refresh(user)
     return user
 

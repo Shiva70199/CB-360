@@ -40,10 +40,13 @@ async function request<T>(
   }
 
   let res: Response;
+  const base = requireApiBase();
   try {
-    res = await fetch(`${requireApiBase()}${path}`, { ...options, headers });
-  } catch {
-    throw new ApiError("Cannot reach the API. Make sure the backend is running on port 8000.", 0);
+    res = await fetch(`${base}${path}`, { ...options, headers });
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    const target = base.includes("localhost") || base.includes("127.0.0.1") ? "http://localhost:8000" : base;
+    throw new ApiError(`Cannot reach the API at ${target}.`, 0);
   }
 
   if (res.status === 204) {

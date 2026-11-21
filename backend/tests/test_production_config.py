@@ -1,9 +1,14 @@
 import os
 
 from fastapi.testclient import TestClient
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.pool import NullPool
+from sqlalchemy.schema import CreateTable
 
-from app.database import normalize_database_url
+from app.auth import hash_password, verify_password
+from app.database import _build_engine, normalize_database_url
 from app.main import app
+from app.models import User
 
 
 def test_normalize_postgres_schemes():
@@ -71,3 +76,36 @@ def test_production_without_database_url_does_not_use_sqlite(monkeypatch):
 
     assert production_database_url() is None
     assert os.getenv("VERCEL") == "1"
+
+
+def test_user_model_matches_postgres_users_table():
+    ddl = str(CreateTable(User.__table__).compile(dialect=postgresql.dialect()))
+    assert User.__tablename__ == "users"
+    for column in ("id", "email", "hashed_password", "created_at"):
+        assert column in ddl
+
+
+def test_postgres_engine_disables_prepared_statements_and_pooling():
+    engine = _build_engine("postgresql+psycopg://user:secret@localhost/neondb")
+    assert isinstance(engine.pool, NullPool)
+    captured = {}
+
+    def fake_connect(*args, **kwargs):
+        captured["kwargs"] = kwargs
+        raise RuntimeError("do not connect")
+
+    engine.dialect.connect = fake_connect
+    try:
+        engine.connect()
+    except RuntimeError:
+        pass
+    assert captured["kwargs"]["prepare_threshold"] is None
+    engine.dispose()
+
+
+def test_password_verification_accepts_its_own_hash_and_rejects_bad_hashes():
+    hashed = hash_password("pass1234")
+    assert hashed.startswith("$2")
+    assert verify_password("pass1234", hashed) is True
+    assert verify_password("wrong-password", hashed) is False
+    assert verify_password("pass1234", "not-a-bcrypt-hash") is False

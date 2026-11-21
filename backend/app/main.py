@@ -1,4 +1,6 @@
-from fastapi import FastAPI
+import sys
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -35,6 +37,17 @@ app.include_router(datasets.router)
 app.include_router(analytics.router)
 app.include_router(dashboard.router)
 app.include_router(restaurant.router)
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request: Request, exc: Exception):
+    # Unhandled errors were turned into a plain-text 500 outside CORS, so the
+    # browser reported that the API could not be reached.
+    if isinstance(exc, HTTPException):
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    # Log only the type. Database exceptions can include the connection string.
+    print(f"unhandled {type(exc).__name__}", file=sys.stderr)
+    return JSONResponse({"detail": "The API could not complete that request."}, status_code=500)
 
 
 @app.get("/health")
