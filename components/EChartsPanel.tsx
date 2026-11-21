@@ -40,7 +40,7 @@ export function EChartsPanel({ type, xLabel, yLabel, xData, yData }: EChartsPane
           ? {
               type: "scatter" as const,
               data: pairs.map((p) => [Number(p.x) || 0, p.y]),
-              itemStyle: { color: "#2563eb" },
+              itemStyle: { color: "#14532d" },
               symbolSize: 8,
             }
           : type === "line"
@@ -48,13 +48,13 @@ export function EChartsPanel({ type, xLabel, yLabel, xData, yData }: EChartsPane
                 type: "line" as const,
                 data: pairs.map((p) => p.y),
                 smooth: true,
-                lineStyle: { color: "#2563eb", width: 2 },
-                itemStyle: { color: "#2563eb" },
+                lineStyle: { color: "#14532d", width: 2 },
+                itemStyle: { color: "#14532d" },
               }
             : {
                 type: "bar" as const,
                 data: pairs.map((p) => p.y),
-                itemStyle: { color: "#2563eb", borderRadius: [4, 4, 0, 0] },
+                itemStyle: { color: "#14532d", borderRadius: [4, 4, 0, 0] },
               };
 
       chartRef.current.setOption(

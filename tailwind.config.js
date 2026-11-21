@@ -8,23 +8,31 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        background: "#f5f1eb",
-        foreground: "#111111",
-        accent: {
-          DEFAULT: "#ff4b1f",
-          foreground: "#ffffff"
+        background: "#f8fafc",
+        foreground: "#0f172a",
+        navy: {
+          DEFAULT: "#0f172a",
+          soft: "#1e293b"
         },
-        frame: "#111111",
-        subtle: "#f9f4ee"
+        accent: {
+          DEFAULT: "#14532d",
+          foreground: "#ffffff",
+          warm: "#34d399",
+          mint: "#6ee7b7"
+        },
+        forest: {
+          DEFAULT: "#14532d",
+          deep: "#10261c",
+          mint: "#34d399"
+        }
       },
       boxShadow: {
-        soft: "0 18px 40px rgba(15, 15, 15, 0.18)"
+        soft: "0 10px 30px rgba(15, 23, 42, 0.08)"
       },
       fontFamily: {
-        sans: ["system-ui", "ui-sans-serif", "SF Pro Text", "Inter", "sans-serif"]
+        sans: ["var(--font-jakarta)", "Plus Jakarta Sans", "ui-sans-serif", "sans-serif"]
       }
     }
   },
   plugins: []
 };
-

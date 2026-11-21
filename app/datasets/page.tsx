@@ -95,10 +95,13 @@ export default function DatasetsPage() {
     <LayoutShell withSidebar>
       <section className="space-y-8">
         <div>
-          <p className="section-title">Datasets</p>
-          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-black sm:text-4xl">
-            Manage datasets
+          <p className="section-title">CB 360</p>
+          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
+            CSV datasets
           </h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Upload and preview CSV files. Restaurant transactions live in Data Management.
+          </p>
         </div>
 
         <div className="premium-card p-6">

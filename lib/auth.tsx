@@ -103,8 +103,9 @@ export function AuthLoadingShell({ children }: { children: ReactNode }) {
   const { loading } = useAuth();
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f7f3ed]">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-neutral-300 border-t-[#2563eb]" />
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#f6f7f4]">
+        <p className="text-sm font-semibold tracking-tight text-emerald-900">CB 360</p>
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-100 border-t-emerald-800" />
       </div>
     );
   }

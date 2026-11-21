@@ -1,27 +1,28 @@
 "use client";
 
-import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
 import { useAuth } from "@/lib/auth";
+import { BrandMark } from "./BrandMark";
 
 const publicPaths = ["/login", "/register", "/"];
 
 export function Navbar() {
   const pathname = usePathname();
-  const { user, logout, token } = useAuth();
+  const { logout, token } = useAuth();
   const isPublic = publicPaths.includes(pathname);
 
   return (
-    <header className="sticky top-0 z-20 border-b border-neutral-200 bg-[#f7f3ed]/80 backdrop-blur-md">
+    <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/90">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-        <Link href={token ? "/dashboard" : "/"} className="flex items-center gap-3 transition hover:opacity-90">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full border border-[#2563eb] bg-[#2563eb] text-[11px] font-semibold text-white">
-            DB
-          </div>
-          <span className="text-sm font-semibold tracking-tight text-black sm:text-base">
-            Data<span className="text-neutral-500">Board</span>
+        <Link
+          href={token ? "/dashboard" : "/"}
+          className="flex items-center gap-3 transition hover:opacity-90"
+        >
+          <BrandMark height={36} />
+          <span className="text-sm font-semibold tracking-tight text-slate-900 sm:text-base dark:text-white">
+            CB <span className="text-emerald-800 dark:text-emerald-300">360</span>
           </span>
         </Link>
 
@@ -30,8 +31,8 @@ export function Navbar() {
             <nav className="flex items-center gap-1 lg:hidden">
               {[
                 { href: "/dashboard", label: "Home" },
-                { href: "/datasets", label: "Data" },
-                { href: "/analytics", label: "Charts" },
+                { href: "/data", label: "Data" },
+                { href: "/sales", label: "Sales" },
               ].map((item) => (
                 <Link
                   key={item.href}
@@ -39,8 +40,8 @@ export function Navbar() {
                   className={clsx(
                     "rounded-full px-3 py-1.5 text-xs font-semibold transition",
                     pathname === item.href
-                      ? "bg-black text-white"
-                      : "text-neutral-600 hover:bg-white"
+                      ? "bg-slate-900 text-white"
+                      : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
                   )}
                 >
                   {item.label}
@@ -53,7 +54,7 @@ export function Navbar() {
             <button
               type="button"
               onClick={logout}
-              className="hidden rounded-full border border-neutral-300 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-50 sm:inline-flex"
+              className="hidden rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 sm:inline-flex dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
             >
               Log out
             </button>
@@ -61,20 +62,18 @@ export function Navbar() {
             <div className="flex items-center gap-2">
               <Link
                 href="/login"
-                className="rounded-full px-3 py-1.5 text-xs font-semibold text-neutral-700 transition hover:text-black"
+                className="rounded-full px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:text-slate-900 dark:text-slate-300"
               >
                 Log in
               </Link>
               <Link
                 href="/register"
-                className="rounded-full border border-black bg-black px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#2563eb] hover:border-[#2563eb]"
+                className="rounded-full border border-emerald-800 bg-emerald-800 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 hover:border-emerald-700"
               >
                 Sign up
               </Link>
             </div>
           )}
-
-          <span className="hidden h-1.5 w-1.5 rounded-full bg-green-500 md:inline-block" />
         </div>
       </div>
     </header>

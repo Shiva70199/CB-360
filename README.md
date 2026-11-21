@@ -1,38 +1,135 @@
-# DataBoard
+# CB 360 – Business Intelligence & Analytics Platform
 
-DataBoard is a full-stack CSV analytics dashboard. Authenticated users upload datasets, preview rows, compute statistics on numeric columns, and build bar, line, and scatter charts.
+**Tagline:** See Your Business from Every Angle.
 
-**Repository:** https://github.com/Shiva70199/databoard
+**Workspace:** California Burrito Analytics — Restaurant Operations & Business Intelligence
+
+CB 360 turns restaurant transactions into actionable business intelligence. It analyzes sales, menu performance, outlet operations and payment mix through one analytics platform. This build is the California Burrito Software Developer Intern technical assessment and uses the transaction dataset supplied by the company. It is an assessment project, not official California Burrito internal software.
+
+Authenticated users import POS transaction line items (Excel/CSV), then explore revenue, menu items, outlets, order types and settlements through server-side aggregations. The product keeps the earlier CSV upload and charting tools alongside the restaurant workspace.
+
+**Repository:** https://github.com/Shiva70199/CB-360  
+**Branch:** `main`
+
+## Features
+
+- JWT authentication (register / login / protected routes)
+- Restaurant ETL for Excel (`.xlsx`) and CSV with validation, rejection reports and idempotent re-imports
+- KPI overview: revenue, orders, AOV, items sold, transaction count, active outlets
+- Sales, product, outlet, order-type and payment analytics with ECharts
+- Global filters (date, brand, outlet, category, order type, settlement)
+- Data management: upload, default-path import, import history, paginated transactions, CSV export
+- Dark / light theme
+- Legacy CSV upload + charting retained at `/datasets` and `/analytics`
+
+## Technology stack
+
+| Layer | Choice |
+|-------|--------|
+| Frontend | Next.js 14, React 18, Tailwind CSS, Apache ECharts, Plus Jakarta Sans |
+| Backend | FastAPI, Pandas, openpyxl, SQLAlchemy, JWT, bcrypt |
+| Database | SQLite (indexed fact table) |
 
 ## Architecture
 
 ```
-DataBoard/
-├── app/                    # Next.js App Router pages
-│   ├── dashboard/          # Home metrics + quick actions
-│   ├── datasets/           # Upload, list, preview, delete
-│   ├── analytics/          # Stats + ECharts visualizations
-│   ├── login/ & register/  # Auth pages
-│   └── layout.tsx          # Root layout + providers
-├── components/             # Reusable UI (LayoutShell, Navbar, Sidebar, ECharts)
-├── lib/                    # API client + auth context
+CB 360/
+├── app/                      # Next.js App Router
+│   ├── dashboard/            # Overview KPIs + insights
+│   ├── sales/ products/ outlets/ orders/ payments/
+│   ├── data/                 # Import / export / transactions
+│   ├── datasets/ analytics/  # Legacy CSV tools
+│   └── login/ register/
+├── components/bi/            # BI shell, filters, charts, KPI cards
+├── lib/                      # API clients, auth, filters, theme
+├── data/source/              # Place restaurant_transactions.xlsx here
+├── data/reports/             # ETL import reports (generated)
 ├── backend/
 │   ├── app/
-│   │   ├── main.py         # FastAPI entry
-│   │   ├── auth.py         # JWT + bcrypt
-│   │   ├── models.py       # SQLAlchemy models
-│   │   ├── services.py     # CSV + analytics logic
-│   │   └── routers/        # REST endpoints
-│   └── tests/              # Pytest suite
-└── ProjectSpec.md          # Requirements source of truth
+│   │   ├── etl.py            # Excel/CSV ingest + validation
+│   │   ├── restaurant_analytics.py  # SQL aggregations
+│   │   ├── models.py         # User, Dataset, ImportBatch, TransactionLine
+│   │   └── routers/restaurant.py
+│   └── tests/
+└── scripts/create_test_fixture.py
 ```
 
-**Frontend:** Next.js 14, React, Tailwind CSS, Apache ECharts  
-**Backend:** FastAPI, Pandas, SQLAlchemy, SQLite, JWT, bcrypt
+```
+Excel/CSV → ETL (validate, normalize, order_key) → SQLite transaction_lines
+                                                      ↓
+                              FastAPI /restaurant/* aggregations
+                                                      ↓
+                              Next.js BI dashboard (filtered charts)
+```
 
-## How to Run 
+## Database structure
 
-### 1. Start the backend
+| Table | Role |
+|-------|------|
+| `users` | Registered accounts and password hashes |
+| `datasets` | Legacy per-user CSV uploads |
+| `import_batches` | Restaurant file imports, hash, row counts and status |
+| `transaction_lines` | Valid POS line items used by every restaurant KPI |
+
+Indexed columns on `transaction_lines` include bill number, order datetime, outlet, brand, menu group, order type, settlement and `order_key`.
+
+## Database decision
+
+**SQLite is retained.** ~300k indexed line items are well within SQLite’s comfort zone for server-side `SUM` / `COUNT(DISTINCT)` queries. Migrating to PostgreSQL would add deployment complexity without a clear local-assessment benefit. The schema remains portable (`DATABASE_URL`) if Postgres is needed later.
+
+## ETL explanation
+
+1. Read `.xlsx` (openpyxl) or `.csv`
+2. Map headers via aliases (`Group` → `menu_group`, etc.)
+3. Parse `Order_Datetime` with primary format `DD-MM-YYYY HH:MM:SS`
+4. Coerce `Price` / `Quantity`; reject invalid rows with reasons
+5. Compute `line_revenue = Price × Quantity`
+6. Build composite **order_key** = `{BillNo}|{Outlet_Name}|{YYYY-MM-DD}`  
+   BillNo alone is unsafe across outlets/days, so Total Orders = `COUNT(DISTINCT order_key)`
+7. Bulk insert in chunks of 5,000
+8. Idempotent by SHA-256 file hash (successful hash is reused)
+9. Write JSON report under `data/reports/`
+
+## KPI calculation methodology
+
+| KPI | Definition |
+|-----|------------|
+| Total Revenue | `SUM(line_revenue)` |
+| Total Orders | `COUNT(DISTINCT order_key)` |
+| Average Order Value | Total Revenue / Total Orders |
+| Total Items Sold | `SUM(quantity)` |
+| Transaction Records | Count of valid line items |
+| Active Outlets | `COUNT(DISTINCT outlet_name)` |
+
+Period-over-period growth is returned **only** when both `date_from` and `date_to` are set. No invented growth figures.
+
+## Performance considerations
+
+- Aggregations run in SQL — the browser never receives 300k raw rows
+- Transaction tables are paginated
+- Indexes on bill_no, order_datetime, outlet_name, brand, menu_group, order_type, settlement, order_key
+- Chart payloads are pre-aggregated series
+- CSV export capped at 50,000 rows
+- API responses include `meta.query_ms`
+
+## Local setup
+
+### Prerequisites
+
+- Node.js 18+
+- Python 3.12+ (or use the project embeddable runtime under `backend/.pyembed` if present)
+
+### 1. Place the dataset
+
+Copy the assessment workbook to:
+
+```text
+data/source/restaurant_transactions.xlsx
+```
+
+Do not commit the raw assessment file without permission.
+
+### 2. Backend
 
 ```bash
 cd backend
@@ -46,9 +143,9 @@ copy .env.example .env
 uvicorn app.main:app --reload --port 8000
 ```
 
-API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+API docs: http://localhost:8000/docs
 
-### 2. Start the frontend (new terminal)
+### 3. Frontend
 
 ```bash
 npm install
@@ -56,162 +153,79 @@ copy .env.local.example .env.local
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in Chrome, Edge, or Firefox.
+Open http://localhost:3000 — register, open **Data Management**, then **Import default path** or upload the Excel file.
 
-### 3. Run automated tests
+### Environment variables
 
-```bash
-cd backend
-.venv\Scripts\activate
-pytest -v
-```
+**Backend (`backend/.env`)**
 
-### 4. Manual smoke test
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `DATABASE_URL` | `sqlite:///./databoard.db` | SQLAlchemy URL |
+| `JWT_SECRET` | `change-me-in-production` | JWT signing secret |
+| `CORS_ORIGINS` | `http://localhost:3000` | Allowed origins |
+| `UPLOAD_DIR` | `./uploads` | Legacy CSV uploads |
+| `RESTAURANT_SOURCE_PATH` | `../data/source/restaurant_transactions.xlsx` | Default import path |
+| `REPORTS_DIR` | `../data/reports` | ETL reports |
 
-1. Register at `/register`
-2. Upload a CSV on `/datasets`
-3. Preview rows and delete a dataset
-4. Open `/analytics` — compute stats and switch chart types
-5. Check `/dashboard` for summary metrics
-6. Log out from the navbar or sidebar
+**Frontend (`.env.local`)**
 
-## Installation
-
-### Backend
-
-```bash
-cd backend
-python -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn app.main:app --reload --port 8000
-```
-
-### Frontend
-
-```bash
-npm install
-cp .env.local.example .env.local
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000).
-
-## Environment Variables
-
-### Backend (`backend/.env`)
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `JWT_SECRET` | Signing key for access tokens | `change-me-in-production` |
-| `JWT_ALGORITHM` | JWT algorithm | `HS256` |
-| `JWT_EXPIRE_MINUTES` | Token lifetime | `1440` |
-| `DATABASE_URL` | SQLite connection | `sqlite:///./databoard.db` |
-| `UPLOAD_DIR` | CSV storage path | `./uploads` |
-| `CORS_ORIGINS` | Allowed frontend origins | `http://localhost:3000` |
-
-### Frontend (`.env.local`)
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `NEXT_PUBLIC_API_URL` | FastAPI base URL | `http://localhost:8000` |
-
-## Authentication
-
-- **Register** — `POST /auth/register` with email + password (min 6 chars)
-- **Login** — `POST /auth/login` returns a JWT bearer token
-- **Logout** — `POST /auth/logout` (client clears stored token)
-- **Session** — token stored in `localStorage`; sent as `Authorization: Bearer <token>`
-- **Protected routes** — frontend redirects unauthenticated users; backend returns `401` for missing/expired tokens
-- **Isolation** — each user can only access their own datasets
-
-Passwords are hashed with bcrypt via passlib. Tokens are signed with HS256 and include an expiry claim.
-
-## API Documentation
-
-Interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/auth/register` | Create account |
-| POST | `/auth/login` | Obtain JWT |
-| POST | `/auth/logout` | End session (client-side token discard) |
-| GET | `/auth/me` | Current user |
-| GET | `/datasets` | List datasets (pagination + search) |
-| POST | `/datasets` | Upload CSV (multipart) |
-| GET | `/datasets/{id}` | Dataset metadata |
-| GET | `/datasets/{id}/preview` | First 25 rows |
-| DELETE | `/datasets/{id}` | Delete dataset |
-| GET | `/datasets/{id}/columns` | Column metadata |
-| POST | `/analytics/compute` | Min / max / sum for numeric column |
-| GET | `/dashboard/stats` | Home page metrics |
-
-The frontend also uses `POST /datasets/{id}/chart-data` for ECharts series data (not listed in ProjectSpec but required for visualization).
+| Variable | Example |
+|----------|---------|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` |
 
 ## Testing
 
 ```bash
 cd backend
-.venv\Scripts\activate   # Windows
+.venv\Scripts\activate
 pytest -v
 ```
 
-Coverage includes:
+Critical coverage includes:
 
-- Authentication (register, login, protected routes)
-- CSV validation (empty, invalid type, duplicate name)
-- Pagination and search
-- Compute endpoint (numeric, invalid, non-numeric columns)
+- Shared `BillNo` line items counting as one order (composite `order_key`)
+- Revenue = price × quantity
+- Missing/invalid row rejection
+- Idempotent imports by file hash
+- KPI/filter/pagination/export API behaviour
+- Empty KPIs return zeros (not hardcoded demo metrics)
 
-## Assumptions
+## Deployment preparation
 
-- CSV files use a standard comma delimiter with a header row
-- Dataset names are unique per user
-- Preview is capped at 25 rows for performance
-- Chart Y-axis must be a numeric column; X can be any column
-- SQLite is sufficient for the take-home scope
+Suggested split matching the existing stack:
 
-## Deployment (Vercel + backend)
+- **Frontend:** Vercel (`vercel.json` already present)
+- **Backend:** Render / Railway (FastAPI + Uvicorn)
+- **Database:** SQLite file volume for a single instance, or set `DATABASE_URL` to Postgres/Neon when scaling
 
-**Vercel hosts the Next.js frontend only.** The FastAPI backend must be deployed separately (Render, Railway, Fly.io, etc.).
+Checklist:
 
-### Vercel (frontend)
+1. Set strong `JWT_SECRET`
+2. Set `CORS_ORIGINS` to the Vercel URL
+3. Set `NEXT_PUBLIC_API_URL` to the API URL
+4. Persist uploads / SQLite (or migrate to Postgres + object storage)
+5. Confirm `/health` and login after deploy
 
-1. Import [github.com/Shiva70199/databoard](https://github.com/Shiva70199/databoard) on [vercel.com](https://vercel.com)
-2. Framework: **Next.js** — Root Directory: `.` (repo root, not `backend/`)
-3. Add environment variable:
-   - `NEXT_PUBLIC_API_URL` = your deployed backend URL (e.g. `https://your-api.onrender.com`)
-4. Deploy
+**Deployed URL:** not claimed until the app is actually deployed and verified.
 
-### Backend (example: Render)
+## Trade-offs and assumptions
 
-1. Create a **Web Service** from the same repo
-2. Root Directory: `backend`
-3. Build: `pip install -r requirements.txt`
-4. Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-5. Set `CORS_ORIGINS` to your Vercel URL (e.g. `https://databoard.vercel.app`)
-6. Redeploy Vercel after the backend URL is live
+- Composite `order_key` is used without waiting for a full 300k uniqueness audit of the missing workbook; once the Excel file is available, re-check BillNo collisions across outlets/dates.
+- SQLite chosen for simplicity and assessment fit; Postgres is optional via `DATABASE_URL`.
+- Legacy CSV analytics remain available alongside California Burrito Analytics.
+- Raw assessment dataset is gitignored.
 
-### Vercel crash fix (ECharts)
+## Phase status
 
-Apache ECharts requires browser APIs and must not run during server-side rendering. The app loads ECharts client-only via `next/dynamic` with `ssr: false`.
-
-## Future Improvements
-
-- Refresh tokens and httpOnly cookie storage
-- Column type inference overrides
-- Dataset versioning and re-upload
-- Export computed stats and chart images
-- PostgreSQL for production deployments
-- Server-side pagination on preview for very wide files
-
-## Scripts
-
-- `npm run dev` — Start Next.js dev server
-- `npm run build` — Production build
-- `npm run clean` — Remove stale Next.js build cache
-- `uvicorn app.main:app --reload` — Start API (from `backend/`)
+| Phase | Status |
+|-------|--------|
+| 1 Repository & Excel audit | Done (Excel file not present locally — place under `data/source/`) |
+| 2 Architecture plan | Done |
+| 3 ETL pipeline | Done |
+| 4 DB + indexes | Done (SQLite) |
+| 5 Analytics APIs | Done |
+| 6 Dashboard UI | Done |
+| 7 Tests | Done (38 passed) |
+| 8 Performance | Done (SQL aggregations, indexes, pagination) |
+| 9 README / deploy prep | Done (deploy pending real hosting + dataset) |

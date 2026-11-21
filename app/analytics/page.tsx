@@ -149,10 +149,13 @@ export default function AnalyticsPage() {
     <LayoutShell withSidebar>
       <section className="space-y-8">
         <div>
-          <p className="section-title">Analytics</p>
-          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-black sm:text-4xl">
-            Statistics & charts
+          <p className="section-title">CB 360</p>
+          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">
+            CSV charts
           </h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Legacy dataset charts, kept alongside California Burrito Analytics.
+          </p>
         </div>
 
         {loadingDatasets ? (
@@ -167,7 +170,7 @@ export default function AnalyticsPage() {
         ) : datasets.length === 0 ? (
           <div className="premium-card p-6 text-sm text-neutral-600">
             No datasets yet.{" "}
-            <Link href="/datasets" className="font-semibold text-[#2563eb] hover:underline">
+            <Link href="/datasets" className="font-semibold text-emerald-800 hover:underline">
               Upload a dataset
             </Link>{" "}
             to run analytics.

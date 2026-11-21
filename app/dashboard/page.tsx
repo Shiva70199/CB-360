@@ -1,122 +1,155 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { LayoutShell } from "@/components/LayoutShell";
-import { ApiError, api, type DashboardStats } from "@/lib/api";
-import { useAuth, useRequireAuth } from "@/lib/auth";
+import { useCallback, useEffect, useState } from "react";
+import { DashboardFrame } from "@/components/bi/DashboardFrame";
+import { KpiCard } from "@/components/bi/KpiCard";
+import { BiChart } from "@/components/bi/BiChart";
+import { ErrorState } from "@/components/bi/ErrorState";
+import { EmptyState } from "@/components/bi/EmptyState";
+import { ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { activeFilters, useRestaurantFilters } from "@/lib/filters";
+import {
+  formatCurrency,
+  formatNumber,
+  restaurantApi,
+  type InsightItem,
+  type KpiData,
+  type TrendPoint,
+} from "@/lib/restaurant";
 
-export default function DashboardPage() {
+export default function OverviewPage() {
   const { token, logout } = useAuth();
-  useRequireAuth();
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const { filters } = useRestaurantFilters();
+  const [kpis, setKpis] = useState<KpiData | null>(null);
+  const [trends, setTrends] = useState<TrendPoint[]>([]);
+  const [insights, setInsights] = useState<InsightItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [queryMs, setQueryMs] = useState<number | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!token) return;
     setLoading(true);
-    api
-      .dashboardStats(token)
-      .then(setStats)
-      .catch((err) => {
-        if (err instanceof ApiError && err.status === 401) {
-          logout();
-          return;
-        }
-        setError(err instanceof ApiError ? err.message : "Failed to load dashboard.");
-      })
-      .finally(() => setLoading(false));
-  }, [token, logout]);
+    setError(null);
+    const f = activeFilters(filters);
+    try {
+      const [kpiRes, trendRes, insightRes] = await Promise.all([
+        restaurantApi.kpis(token, f),
+        restaurantApi.trends(token, f, "day"),
+        restaurantApi.insights(token, f),
+      ]);
+      setKpis(kpiRes.data);
+      setTrends(trendRes.data);
+      setInsights(insightRes.data);
+      setQueryMs(kpiRes.meta?.query_ms ?? null);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        logout();
+        return;
+      }
+      setError(err instanceof ApiError ? err.message : "Failed to load overview.");
+    } finally {
+      setLoading(false);
+    }
+  }, [token, filters, logout]);
 
-  if (loading) {
-    return (
-      <LayoutShell withSidebar>
-        <div className="space-y-6">
-          <div className="h-8 w-48 animate-pulse rounded bg-neutral-200" />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-28 animate-pulse rounded-xl bg-neutral-200" />
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const growth = kpis?.comparison?.growth;
+
+  return (
+    <DashboardFrame
+      title="Overview"
+      subtitle="California Burrito Analytics — revenue, orders and outlet snapshot"
+    >
+      {error && <ErrorState message={error} onRetry={load} />}
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <KpiCard
+          label="Total Revenue"
+          value={formatCurrency(kpis?.total_revenue ?? 0)}
+          growthPct={growth?.total_revenue_pct}
+          loading={loading}
+          accent="blue"
+        />
+        <KpiCard
+          label="Total Orders"
+          value={formatNumber(kpis?.total_orders ?? 0)}
+          growthPct={growth?.total_orders_pct}
+          loading={loading}
+          accent="orange"
+        />
+        <KpiCard
+          label="Average Order Value"
+          value={formatCurrency(kpis?.aov ?? 0)}
+          growthPct={growth?.aov_pct}
+          loading={loading}
+        />
+        <KpiCard
+          label="Total Items Sold"
+          value={formatNumber(kpis?.total_items_sold ?? 0)}
+          loading={loading}
+          accent="slate"
+        />
+        <KpiCard
+          label="Transaction Records"
+          value={formatNumber(kpis?.total_transactions ?? 0)}
+          loading={loading}
+        />
+        <KpiCard
+          label="Active Outlets"
+          value={formatNumber(kpis?.active_outlets ?? 0)}
+          loading={loading}
+          accent="orange"
+        />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-5">
+        <div className="bi-card p-5 lg:col-span-3">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+              Daily revenue trend
+            </h2>
+            {queryMs !== null && (
+              <span className="text-[11px] text-slate-400">{queryMs} ms</span>
+            )}
+          </div>
+          {!loading && (kpis?.total_transactions ?? 0) === 0 ? (
+            <EmptyState />
+          ) : (
+            <BiChart
+              type="area"
+              labels={trends.map((t) => t.period || "")}
+              values={trends.map((t) => t.revenue)}
+              seriesName="Revenue"
+            />
+          )}
+        </div>
+        <div className="bi-card p-5 lg:col-span-2">
+          <h2 className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">
+            Business insights
+          </h2>
+          <div className="space-y-3">
+            {insights.length === 0 && !loading && (
+              <p className="text-sm text-slate-500">No insights available.</p>
+            )}
+            {insights.map((item) => (
+              <div
+                key={item.title}
+                className="rounded-xl border border-slate-100 bg-slate-50/80 p-3 dark:border-slate-800 dark:bg-slate-900/60"
+              >
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                  {item.title}
+                </p>
+                <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">{item.detail}</p>
+              </div>
             ))}
           </div>
         </div>
-      </LayoutShell>
-    );
-  }
-
-  return (
-    <LayoutShell withSidebar>
-      <section className="space-y-8">
-        <div>
-          <p className="section-title">Home</p>
-          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-black sm:text-4xl">
-            Dashboard
-          </h1>
-          <p className="mt-2 text-sm text-neutral-600">
-            Overview of your datasets and quick actions.
-          </p>
-        </div>
-
-        {error && (
-          <div className="premium-card p-5 text-sm text-rose-700">{error}</div>
-        )}
-
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="premium-card p-5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
-              Total datasets
-            </p>
-            <p className="mt-3 text-3xl font-semibold text-black">
-              {stats?.total_datasets ?? 0}
-            </p>
-          </div>
-          <div className="premium-card p-5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
-              Total rows
-            </p>
-            <p className="mt-3 text-3xl font-semibold text-black">
-              {(stats?.total_rows ?? 0).toLocaleString()}
-            </p>
-          </div>
-          <div className="premium-card p-5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
-              Latest upload
-            </p>
-            <p className="mt-3 line-clamp-2 text-sm font-semibold text-neutral-900">
-              {stats?.latest_upload?.name ?? "—"}
-            </p>
-          </div>
-          <div className="premium-card p-5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
-              Available charts
-            </p>
-            <p className="mt-3 text-sm font-medium capitalize text-neutral-800">
-              {(stats?.available_charts ?? []).join(", ") || "—"}
-            </p>
-          </div>
-        </div>
-
-        <div className="premium-card p-6">
-          <p className="section-title">Quick actions</p>
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-            <Link href="/datasets" className="accent-button text-center">
-              Upload dataset
-            </Link>
-            <Link
-              href="/datasets"
-              className="inline-flex items-center justify-center rounded-full border border-neutral-300 bg-white px-6 py-2.5 text-sm font-semibold text-neutral-900 transition hover:bg-neutral-50"
-            >
-              View datasets
-            </Link>
-            <Link
-              href="/analytics"
-              className="inline-flex items-center justify-center rounded-full border border-neutral-300 bg-white px-6 py-2.5 text-sm font-semibold text-neutral-900 transition hover:bg-neutral-50"
-            >
-              Analytics
-            </Link>
-          </div>
-        </div>
-      </section>
-    </LayoutShell>
+      </div>
+    </DashboardFrame>
   );
 }

@@ -39,8 +39,11 @@ export default function LoginPage() {
     <LayoutShell>
       <section className="mx-auto w-full max-w-md py-12">
         <div className="premium-card p-8">
-          <p className="section-title">Sign in</p>
-          <h1 className="mt-2 text-2xl font-extrabold text-black">Welcome back</h1>
+          <p className="section-title">CB 360</p>
+          <h1 className="mt-2 text-2xl font-extrabold text-slate-950">Welcome back</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Sign in to California Burrito Analytics.
+          </p>
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>
               <label className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500">
@@ -73,7 +76,7 @@ export default function LoginPage() {
           </form>
           <p className="mt-4 text-sm text-neutral-600">
             No account?{" "}
-            <Link href="/register" className="font-semibold text-[#2563eb] hover:underline">
+            <Link href="/register" className="font-semibold text-emerald-800 hover:underline">
               Create one
             </Link>
           </p>

@@ -1,0 +1,6 @@
+BillNo,Outlet_Name,Brand,Order_Datetime,Group,Item,Price,Quantity,Order_Type,Settlement
+B100,Downtown,CafeOne,15-01-2024 12:30:00,Beverages,Latte,120,2,Dine-In,Card
+B100,Downtown,CafeOne,15-01-2024 12:30:00,Food,Sandwich,180,1,Dine-In,Card
+B100,Airport,CafeOne,15-01-2024 18:00:00,Beverages,Espresso,90,1,Takeaway,Cash
+B200,Downtown,BiteBrand,16-01-2024 09:15:00,Food,Burger,250,2,Delivery,UPI
+B300,Downtown,CafeOne,16-01-2024 10:00:00,Food,Fries,,1,Dine-In,Cash

@@ -39,8 +39,11 @@ export default function RegisterPage() {
     <LayoutShell>
       <section className="mx-auto w-full max-w-md py-12">
         <div className="premium-card p-8">
-          <p className="section-title">Create account</p>
-          <h1 className="mt-2 text-2xl font-extrabold text-black">Get started</h1>
+          <p className="section-title">CB 360</p>
+          <h1 className="mt-2 text-2xl font-extrabold text-slate-950">Create your workspace</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Business Intelligence & Analytics Platform for California Burrito.
+          </p>
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>
               <label className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500">
@@ -73,7 +76,7 @@ export default function RegisterPage() {
           </form>
           <p className="mt-4 text-sm text-neutral-600">
             Already have an account?{" "}
-            <Link href="/login" className="font-semibold text-[#2563eb] hover:underline">
+            <Link href="/login" className="font-semibold text-emerald-800 hover:underline">
               Sign in
             </Link>
           </p>

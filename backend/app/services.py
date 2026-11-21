@@ -14,27 +14,47 @@ def ensure_upload_dir() -> None:
     os.makedirs(settings.upload_dir, exist_ok=True)
 
 
+_ALLOWED_DATASET_TYPES = {
+    "text/csv",
+    "application/vnd.ms-excel",
+    "application/csv",
+    "text/plain",
+    "application/octet-stream",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+
 def validate_csv_file(file: UploadFile) -> None:
+    """Accept CSV (original) or Excel (.xlsx) for dataset upload."""
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided.")
-    if not file.filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Only CSV files are allowed.")
-    if file.content_type and file.content_type not in ("text/csv", "application/vnd.ms-excel", "application/csv", "text/plain", "application/octet-stream"):
-        raise HTTPException(status_code=400, detail="Invalid file type. Upload a CSV file.")
+    lower = file.filename.lower()
+    if not (lower.endswith(".csv") or lower.endswith(".xlsx")):
+        raise HTTPException(status_code=400, detail="Only CSV or XLSX files are allowed.")
+    if file.content_type and file.content_type not in _ALLOWED_DATASET_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid file type. Upload a CSV or XLSX file.")
 
 
 async def read_csv_dataframe(file: UploadFile) -> pd.DataFrame:
     content = await file.read()
-    if not content or not content.strip():
-        raise HTTPException(status_code=400, detail="CSV file is empty.")
+    if not content:
+        raise HTTPException(status_code=400, detail="File is empty.")
 
+    lower = (file.filename or "").lower()
     try:
-        df = pd.read_csv(BytesIO(content))
+        if lower.endswith(".xlsx"):
+            df = pd.read_excel(BytesIO(content), engine="openpyxl")
+        else:
+            if not content.strip():
+                raise HTTPException(status_code=400, detail="CSV file is empty.")
+            df = pd.read_csv(BytesIO(content))
+    except HTTPException:
+        raise
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid CSV format.")
+        raise HTTPException(status_code=400, detail="Invalid file format.")
 
     if df.empty or len(df.columns) == 0:
-        raise HTTPException(status_code=400, detail="CSV file contains no data.")
+        raise HTTPException(status_code=400, detail="File contains no data.")
 
     return df
 

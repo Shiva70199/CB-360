@@ -1,4 +1,4 @@
-# DataBoard — Project Specification
+# CB 360 — Project Specification
 
 xVector Labs take-home assessment. Authenticated users upload CSV datasets and analyze them.
 
