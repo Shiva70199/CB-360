@@ -1,6 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-import { ApiError } from "./api";
+import { ApiError, getApiBase } from "./api";
 
 export interface RestaurantFilters {
   date_from?: string;
@@ -164,7 +162,14 @@ async function restaurantRequest<T>(
     headers.set("Content-Type", "application/json");
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const base = getApiBase();
+  if (!base) {
+    throw new ApiError(
+      "NEXT_PUBLIC_API_URL is not set. Add the deployed backend URL in the frontend Vercel project and redeploy.",
+      0
+    );
+  }
+  const res = await fetch(`${base}${path}`, { ...options, headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = data.detail;
@@ -264,7 +269,14 @@ export const restaurantApi = {
   },
 
   exportCsv: async (token: string, filters: RestaurantFilters = {}) => {
-    const res = await fetch(`${API_BASE}/restaurant/export.csv${buildQuery(filters)}`, {
+    const base = getApiBase();
+    if (!base) {
+      throw new ApiError(
+        "NEXT_PUBLIC_API_URL is not set. Add the deployed backend URL in the frontend Vercel project and redeploy.",
+        0
+      );
+    }
+    const res = await fetch(`${base}/restaurant/export.csv${buildQuery(filters)}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {

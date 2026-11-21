@@ -191,23 +191,52 @@ Critical coverage includes:
 - KPI/filter/pagination/export API behaviour
 - Empty KPIs return zeros (not hardcoded demo metrics)
 
-## Deployment preparation
+## Deployment
 
-Suggested split matching the existing stack:
+Two Vercel projects share this repository.
 
-- **Frontend:** Vercel (`vercel.json` already present)
-- **Backend:** Render / Railway (FastAPI + Uvicorn)
-- **Database:** SQLite file volume for a single instance, or set `DATABASE_URL` to Postgres/Neon when scaling
+| Project | Root | Framework |
+|---------|------|-----------|
+| `cb-360-two` | repository root | Next.js |
+| `cb-360-api` | `backend` | FastAPI, entry `index.py` |
 
-Checklist:
+Frontend: https://cb-360-two.vercel.app
 
-1. Set strong `JWT_SECRET`
-2. Set `CORS_ORIGINS` to the Vercel URL
-3. Set `NEXT_PUBLIC_API_URL` to the API URL
-4. Persist uploads / SQLite (or migrate to Postgres + object storage)
-5. Confirm `/health` and login after deploy
+The backend is not treated as deployed until `https://<api>/health/ready` returns database `ok`. There is no Neon connection string in this repository.
 
-**Deployed URL:** not claimed until the app is actually deployed and verified.
+**Backend environment**
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | Neon **pooled** URL. `postgres://` and `postgresql://` are both accepted. Missing in production is an error, not SQLite. |
+| `DATABASE_URL_UNPOOLED` | Neon **direct** URL for schema init and the one-time import. |
+| `JWT_SECRET` | Random secret, at least 32 characters. The development default is rejected in production. |
+| `CORS_ORIGINS` | `https://cb-360-two.vercel.app` plus any preview origins. Localhost is always allowed. |
+| `UPLOAD_DIR` | Optional. Use `/tmp/uploads` only for request-scoped files. It is not permanent. |
+| `REPORTS_DIR` | Optional. Use `/tmp/reports` for import reports. They are not permanent. |
+| `STORAGE_BACKEND` | `local` in development. `s3` in production if dataset uploads must persist. |
+| `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_ENDPOINT_URL`, `S3_REGION` | S3-compatible dataset storage. Restaurant analytics do not need these. |
+
+**Frontend environment**
+
+| Variable | Purpose |
+|----------|---------|
+| `NEXT_PUBLIC_API_URL` | Backend origin, no trailing slash. Local: `http://localhost:8000`. Production: the `cb-360-api` URL. |
+
+Accounts that exist only in the local SQLite file are not copied to Neon. Register again after the Postgres schema is created.
+
+Schema init does not drop tables. This project has no Alembic migrations, so `create_all` adds missing tables and does not change columns that already exist.
+
+```bash
+cd backend
+# direct Neon URL in the environment; do not commit it
+python scripts/init_db.py
+python scripts/import_restaurant.py
+```
+
+`import_restaurant.py` reads `data/source/restaurant_transactions.xlsx`. That workbook is gitignored. If it is not on disk, the script stops and nothing is imported. Repeating the import reuses a successful file hash and does not insert the same line items again.
+
+Health: `GET /health` and `GET /health/live` mean the process is up. `GET /health/ready` runs `SELECT 1` and does not return connection strings or stack traces.
 
 ## Trade-offs and assumptions
 

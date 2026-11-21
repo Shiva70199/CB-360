@@ -1,5 +1,4 @@
 import json
-import os
 from io import BytesIO
 
 import pandas as pd
@@ -8,10 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import Dataset, User
+from app.storage import delete_dataset_file as remove_stored_file
+from app.storage import load_dataset_csv, save_dataset_csv
 
 
 def ensure_upload_dir() -> None:
-    os.makedirs(settings.upload_dir, exist_ok=True)
+    settings.resolve_upload_dir().mkdir(parents=True, exist_ok=True)
 
 
 _ALLOWED_DATASET_TYPES = {
@@ -68,22 +69,11 @@ def check_duplicate_name(db: Session, user_id: int, name: str, exclude_id: int |
 
 
 def save_dataset_file(user_id: int, dataset_id: int, df: pd.DataFrame) -> str:
-    ensure_upload_dir()
-    user_dir = os.path.join(settings.upload_dir, str(user_id))
-    os.makedirs(user_dir, exist_ok=True)
-    file_path = os.path.join(user_dir, f"{dataset_id}.csv")
-    df.to_csv(file_path, index=False)
-    return file_path
+    return save_dataset_csv(user_id, dataset_id, df)
 
 
 def load_dataset_df(dataset: Dataset) -> pd.DataFrame:
-    if not os.path.exists(dataset.file_path):
-        raise HTTPException(status_code=404, detail="Dataset file not found.")
-    try:
-        df = pd.read_csv(dataset.file_path)
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to read dataset file.")
-    return df
+    return load_dataset_csv(dataset.file_path)
 
 
 def get_user_dataset(db: Session, user_id: int, dataset_id: int) -> Dataset:
@@ -123,8 +113,7 @@ def create_dataset_record(db: Session, user: User, name: str, df: pd.DataFrame) 
 
 
 def delete_dataset_file(dataset: Dataset) -> None:
-    if dataset.file_path and os.path.exists(dataset.file_path):
-        os.remove(dataset.file_path)
+    remove_stored_file(dataset.file_path)
 
 
 def delete_dataset_record(db: Session, dataset: Dataset) -> None:

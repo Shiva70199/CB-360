@@ -1,28 +1,26 @@
-import os
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.database import Base, engine
+from app.database import Base, database_status, engine
 from app.models import Dataset, ImportBatch, TransactionLine, User  # noqa: F401 — register metadata
 from app.routers import analytics, auth, dashboard, datasets, restaurant
-from app.services import ensure_upload_dir
 
-# Ensure new restaurant tables (import_batches, transaction_lines) are created
-Base.metadata.create_all(bind=engine)
-ensure_upload_dir()
-os.makedirs(settings.resolve_reports_dir(), exist_ok=True)
+# Local SQLite still creates tables on startup. Production Postgres does not:
+# run `python scripts/init_db.py` once against Neon instead of on every cold start.
+if engine is not None and str(engine.url).startswith("sqlite"):
+    Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="CB 360 API", version="1.1.0")
 
-# Browsers treat localhost and 127.0.0.1 as different origins. A preflight
-# from the other host was rejected with 400, so register/login never ran.
+# Browsers treat localhost and 127.0.0.1 as different origins.
 _LOCAL_ORIGINS = ("http://localhost:3000", "http://127.0.0.1:3000")
 origins: list[str] = []
-for origin in (*_LOCAL_ORIGINS, *(o.strip() for o in settings.cors_origins.split(","))):
+for origin in (*_LOCAL_ORIGINS, *(o.strip().rstrip("/") for o in settings.cors_origins.split(","))):
     if origin and origin not in origins:
         origins.append(origin)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -40,5 +38,17 @@ app.include_router(restaurant.router)
 
 
 @app.get("/health")
-def health():
+@app.get("/health/live")
+def health_live():
     return {"status": "ok"}
+
+
+@app.get("/health/ready")
+def health_ready():
+    database_ok, database_state = database_status()
+    auth_state = "ok" if (not settings.is_production() or settings.jwt_secret_is_safe()) else "not_configured"
+    body = {"status": "ok", "database": database_state, "auth": auth_state}
+    if database_ok and auth_state == "ok":
+        return body
+    body["status"] = "unavailable"
+    return JSONResponse(body, status_code=503)

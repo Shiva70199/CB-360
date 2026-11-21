@@ -1,4 +1,21 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+/** Backend origin with no trailing slash. Production must set NEXT_PUBLIC_API_URL at build time. */
+export function getApiBase(): string {
+  const configured = (process.env.NEXT_PUBLIC_API_URL || "").trim().replace(/\/+$/, "");
+  if (configured) return configured;
+  if (process.env.NODE_ENV === "production") return "";
+  return "http://localhost:8000";
+}
+
+function requireApiBase(): string {
+  const base = getApiBase();
+  if (!base) {
+    throw new ApiError(
+      "NEXT_PUBLIC_API_URL is not set. Add the deployed backend URL in the frontend Vercel project and redeploy.",
+      0
+    );
+  }
+  return base;
+}
 
 export class ApiError extends Error {
   status: number;
@@ -24,7 +41,7 @@ async function request<T>(
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    res = await fetch(`${requireApiBase()}${path}`, { ...options, headers });
   } catch {
     throw new ApiError("Cannot reach the API. Make sure the backend is running on port 8000.", 0);
   }

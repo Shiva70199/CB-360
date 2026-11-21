@@ -2,7 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.auth import authenticate_user, create_access_token, decode_access_token, get_user_by_id, hash_password
+from app.auth import (
+    authenticate_user,
+    create_access_token,
+    decode_access_token,
+    enforce_production_secret,
+    get_user_by_id,
+    hash_password,
+)
 from app.database import get_db
 from app.models import User
 from app.schemas import TokenResponse, UserCreate, UserLogin, UserOut
@@ -15,6 +22,7 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: Session = Depends(get_db),
 ) -> User:
+    enforce_production_secret()
     if not credentials or not credentials.credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated.")
     user_id = decode_access_token(credentials.credentials)
@@ -28,6 +36,7 @@ def get_current_user(
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def register(payload: UserCreate, db: Session = Depends(get_db)):
+    enforce_production_secret()
     email = payload.email.lower()
     existing = db.query(User).filter(User.email == email).first()
     if existing:
@@ -41,6 +50,7 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 def login(payload: UserLogin, db: Session = Depends(get_db)):
+    enforce_production_secret()
     user = authenticate_user(db, payload.email, payload.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password.")
