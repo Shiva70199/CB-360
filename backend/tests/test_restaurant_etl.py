@@ -7,6 +7,8 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
+import time
+import tracemalloc
 
 import pytest
 from sqlalchemy import create_engine, func
@@ -161,3 +163,77 @@ class TestImportRestaurantFile:
         batch = import_restaurant_file(db_session, file_path=path)
         assert batch.status == "success"
         assert batch.valid_rows == 4
+
+    @pytest.mark.skip(reason="manual test for performance regression")
+    def test_performance_regression(self, db_session, tmp_path):
+        """Import a large synthetic dataset and check timing, memory, valid and rejected counts."""
+        import app.etl as etl_module
+
+        # Generate a large synthetic CSV file
+        rows = ["BillNo,Outlet_Name,Brand,Order_Datetime,Group,Item,Price,Quantity,Order_Type,Settlement"]
+        for i in range(1, 30001):
+            rows.append(
+                f"B{i:05d},Downtown,CafeOne,15-01-2024 12:30:00,Beverages,Latte,120,2,Dine-In,Card"
+            )
+        large_csv = "\n".join(rows)
+
+        # Measure memory usage
+        tracemalloc.start()
+        snapshot1 = tracemalloc.take_snapshot()
+
+        # Import the large CSV
+        batch = import_restaurant_file(
+            db_session,
+            file_bytes=large_csv.encode("utf-8"),
+            filename="large_fixture.csv",
+            user_id=1,
+        )
+
+        snapshot2 = tracemalloc.take_snapshot()
+        top_stats = snapshot2.compare_to(snapshot1, "lineno")
+
+        # Print memory usage stats
+        print("[ Top 10 memory usage ]")
+        for stat in top_stats[:10]:
+            print(stat)
+
+        # Check batch results
+        assert batch.status == "success"
+        assert batch.valid_rows == 30000
+        assert batch.rejected_rows == 0
+
+        # Check timing
+        assert batch.import_time < 5.0  # seconds
+
+        # Clean up
+        tracemalloc.stop()
+
+    def test_import_30000_rows(self, db_session):
+        lines = ["BillNo,Outlet_Name,Brand,Order_Datetime,Group,Item,Price,Quantity,Order_Type,Settlement"]
+        lines.extend(
+            f"B{i:05d},Outlet{i % 20},CB360,15-01-2024 12:{i % 60:02d}:00,Food,Item{i % 100},{100 + i % 50},{1 + i % 3},Dine-In,Card"
+            for i in range(30000)
+        )
+        data = ("\n".join(lines) + "\n").encode("utf-8")
+
+        tracemalloc.start()
+        started = time.perf_counter()
+        batch = import_restaurant_file(
+            db_session,
+            file_bytes=data,
+            filename="synthetic-30000.csv",
+            user_id=1,
+        )
+        elapsed = time.perf_counter() - started
+        _, peak_bytes = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+        assert batch.status == "success"
+        assert batch.total_rows == 30000
+        assert batch.valid_rows == 30000
+        assert batch.rejected_rows == 0
+        assert db_session.query(TransactionLine).count() == 30000
+        print(
+            f"30K_IMPORT rows={batch.total_rows} valid={batch.valid_rows} "
+            f"rejected={batch.rejected_rows} seconds={elapsed:.3f} peak_mb={peak_bytes / 1024 / 1024:.2f}"
+        )

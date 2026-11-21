@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.etl import import_restaurant_file
+from app.etl import MAX_UPLOAD_BYTES, import_restaurant_file
 from app.models import User
 from app.restaurant_analytics import (
     FilterParams,
@@ -302,7 +302,7 @@ def imports_list(
     current_user: User = Depends(get_current_user),
 ):
     started = time.perf_counter()
-    return _ok(import_summary(db), started)
+    return _ok(import_summary(db, current_user.id), started)
 
 
 @router.post("/imports/from-path")
@@ -358,9 +358,9 @@ async def imports_upload(
     if not (lower.endswith(".xlsx") or lower.endswith(".xls") or lower.endswith(".csv")):
         raise HTTPException(status_code=400, detail="Only .xlsx or .csv files are allowed.")
 
-    content = await file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Uploaded file exceeds the 50 MB limit.")
 
     try:
         batch = import_restaurant_file(

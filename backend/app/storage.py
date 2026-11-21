@@ -9,6 +9,7 @@ from io import BytesIO
 
 import pandas as pd
 from fastapi import HTTPException, status
+from botocore.exceptions import BotoCoreError, ClientError
 
 from app.config import settings
 
@@ -32,14 +33,17 @@ def _require_persistent_storage() -> None:
 
 def _s3_client():
     import boto3
+    from botocore.config import Config
 
     kwargs = {
-        "aws_access_key_id": settings.s3_access_key_id,
-        "aws_secret_access_key": settings.s3_secret_access_key,
-        "region_name": settings.s3_region or "us-east-1",
+        "aws_access_key_id": settings.resolve_s3_access_key_id(),
+        "aws_secret_access_key": settings.resolve_s3_secret_access_key(),
+        "region_name": settings.resolve_s3_region(),
+        "config": Config(s3={"addressing_style": "path"}),
     }
-    if settings.s3_endpoint_url.strip():
-        kwargs["endpoint_url"] = settings.s3_endpoint_url.strip()
+    endpoint = settings.resolve_s3_endpoint_url()
+    if endpoint:
+        kwargs["endpoint_url"] = endpoint
     return boto3.client("s3", **kwargs)
 
 
@@ -53,12 +57,15 @@ def save_dataset_csv(user_id: int, dataset_id: int, df: pd.DataFrame) -> str:
         buffer = BytesIO()
         df.to_csv(buffer, index=False)
         key = _object_key(user_id, dataset_id)
-        _s3_client().put_object(
-            Bucket=settings.s3_bucket.strip(),
-            Key=key,
-            Body=buffer.getvalue(),
-            ContentType="text/csv",
-        )
+        try:
+            _s3_client().put_object(
+                Bucket=settings.s3_bucket.strip(),
+                Key=key,
+                Body=buffer.getvalue(),
+                ContentType="text/csv",
+            )
+        except (BotoCoreError, ClientError):
+            raise _storage_http_error("uploaded") from None
         return f"s3://{settings.s3_bucket.strip()}/{key}"
 
     upload_root = settings.resolve_upload_dir()
@@ -81,7 +88,10 @@ def load_dataset_csv(file_path: str) -> pd.DataFrame:
         bucket, _, key = without_scheme.partition("/")
         if not bucket or not key:
             raise HTTPException(status_code=404, detail="Dataset file not found.")
-        response = _s3_client().get_object(Bucket=bucket, Key=key)
+        try:
+            response = _s3_client().get_object(Bucket=bucket, Key=key)
+        except (BotoCoreError, ClientError):
+            raise _storage_http_error("downloaded")
         return pd.read_csv(BytesIO(response["Body"].read()))
 
     from pathlib import Path
@@ -104,10 +114,20 @@ def delete_dataset_file(file_path: str | None) -> None:
         without_scheme = file_path[len("s3://") :]
         bucket, _, key = without_scheme.partition("/")
         if bucket and key:
-            _s3_client().delete_object(Bucket=bucket, Key=key)
+            try:
+                _s3_client().delete_object(Bucket=bucket, Key=key)
+            except (BotoCoreError, ClientError):
+                raise _storage_http_error("deleted")
         return
     from pathlib import Path
 
     candidate = Path(file_path)
     if candidate.exists():
         candidate.unlink()
+
+
+def _storage_http_error(operation: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=f"The dataset file could not be {operation}. Retry or check object storage configuration.",
+    )

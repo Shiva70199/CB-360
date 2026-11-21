@@ -117,13 +117,13 @@ export default function DatasetsPage() {
             />
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               required
               className="rounded-xl border border-neutral-300 bg-white px-4 py-3 text-sm file:mr-3 file:rounded-full file:border-0 file:bg-neutral-100 file:px-3 file:py-1 file:text-xs file:font-semibold"
               onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
             />
             <button type="submit" disabled={uploading} className="accent-button rounded-xl">
-              {uploading ? "Uploading…" : "Upload CSV"}
+              {uploading ? "Uploading…" : "Upload CSV or XLSX"}
             </button>
           </form>
         </div>

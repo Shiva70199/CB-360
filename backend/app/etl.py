@@ -59,7 +59,8 @@ DATE_FORMATS = (
     "%Y-%m-%d",
 )
 
-CHUNK_SIZE = 5000
+CHUNK_SIZE = 1000
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 
 def _normalize_header(name: Any) -> str:
@@ -164,6 +165,8 @@ def sha256_file(path: Path) -> str:
 
 
 def _read_dataframe_from_bytes(data: bytes, filename: str) -> pd.DataFrame:
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise ValueError("Uploaded file exceeds the 50 MB limit.")
     lower = filename.lower()
     bio = BytesIO(data)
     if lower.endswith(".xlsx") or lower.endswith(".xls"):
@@ -211,13 +214,14 @@ def _ensure_reports_dir() -> Path:
     return reports
 
 
-def _find_successful_batch(db: Session, file_hash: str) -> ImportBatch | None:
-    return (
-        db.query(ImportBatch)
-        .filter(ImportBatch.file_hash == file_hash, ImportBatch.status == "success")
-        .order_by(ImportBatch.imported_at.desc())
-        .first()
+def _find_successful_batch(db: Session, file_hash: str, user_id: int | None = None) -> ImportBatch | None:
+    query = db.query(ImportBatch).filter(
+        ImportBatch.file_hash == file_hash,
+        ImportBatch.status == "success",
     )
+    if user_id is not None:
+        query = query.filter(ImportBatch.user_id.in_([None, user_id]))
+    return query.order_by(ImportBatch.imported_at.desc()).first()
 
 
 def _validate_and_prepare_rows(
@@ -388,7 +392,7 @@ def import_restaurant_file(
         df = _read_dataframe_from_bytes(data, fname)
 
     if not force:
-        existing = _find_successful_batch(db, file_hash)
+        existing = _find_successful_batch(db, file_hash, user_id)
         if existing:
             # Idempotent reuse — do not insert duplicate lines
             if user_id and existing.user_id is None:

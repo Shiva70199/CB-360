@@ -37,7 +37,9 @@ def validate_csv_file(file: UploadFile) -> None:
 
 
 async def read_csv_dataframe(file: UploadFile) -> pd.DataFrame:
-    content = await file.read()
+    content = await file.read(50 * 1024 * 1024 + 1)
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Uploaded file exceeds the 50 MB limit.")
     if not content:
         raise HTTPException(status_code=400, detail="File is empty.")
 

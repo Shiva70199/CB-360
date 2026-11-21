@@ -30,14 +30,14 @@ class Settings(BaseSettings):
     reports_dir: str = str(_PROJECT_ROOT / "data" / "reports")
     project_root: str = str(_PROJECT_ROOT)
     storage_backend: str = "local"
-    s3_bucket: str = ""
+    s3_bucket: str = "cb360-datasets"
     s3_access_key_id: str = ""
     s3_secret_access_key: str = ""
     s3_endpoint_url: str = ""
     s3_region: str = "us-east-1"
 
     class Config:
-        env_file = ".env"
+        env_file = (".env", "../.env.local")
         extra = "ignore"
 
     def is_production(self) -> bool:
@@ -52,11 +52,10 @@ class Settings(BaseSettings):
         return secret not in _INSECURE_JWT_SECRETS and len(secret) >= 32
 
     def object_storage_configured(self) -> bool:
-        return (
-            self.storage_backend.strip().lower() == "s3"
-            and bool(self.s3_bucket.strip())
-            and bool(self.s3_access_key_id.strip())
-            and bool(self.s3_secret_access_key.strip())
+        return bool(
+            self.s3_bucket.strip()
+            and self.resolve_s3_access_key_id()
+            and self.resolve_s3_secret_access_key()
         )
 
     def resolve_restaurant_source_path(self) -> Path:
@@ -83,6 +82,18 @@ class Settings(BaseSettings):
             # `./uploads` stays inside backend/, matching local uvicorn's working directory.
             path = _BACKEND_DIR / path
         return path
+
+    def resolve_s3_access_key_id(self) -> str:
+        return (self.s3_access_key_id.strip() or os.getenv("AWS_ACCESS_KEY_ID", "").strip())
+
+    def resolve_s3_secret_access_key(self) -> str:
+        return (self.s3_secret_access_key.strip() or os.getenv("AWS_SECRET_ACCESS_KEY", "").strip())
+
+    def resolve_s3_endpoint_url(self) -> str:
+        return (self.s3_endpoint_url.strip() or os.getenv("AWS_ENDPOINT_URL_S3", "").strip())
+
+    def resolve_s3_region(self) -> str:
+        return (self.s3_region.strip() or os.getenv("AWS_REGION", "").strip() or "us-east-1")
 
 
 settings = Settings()

@@ -425,8 +425,11 @@ def filter_options(db: Session) -> dict[str, Any]:
     }
 
 
-def import_summary(db: Session) -> list[dict[str, Any]]:
-    batches = db.query(ImportBatch).order_by(ImportBatch.imported_at.desc()).all()
+def import_summary(db: Session, user_id: int | None = None) -> list[dict[str, Any]]:
+    query = db.query(ImportBatch)
+    if user_id is not None:
+        query = query.filter(ImportBatch.user_id == user_id)
+    batches = query.order_by(ImportBatch.imported_at.desc()).all()
     result = []
     for b in batches:
         missing = {}
