@@ -12,6 +12,8 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@neon/config": "^1.14.6",
+    "@neon/env": "^2.1.9",
     "clsx": "^2.1.1",
     "echarts": "^5.5.1",
     "next": "14.2.5",
