@@ -22,7 +22,12 @@ async function request<T>(
     headers.set("Content-Type", "application/json");
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  } catch {
+    throw new ApiError("Cannot reach the API. Make sure the backend is running on port 8000.", 0);
+  }
 
   if (res.status === 204) {
     return undefined as T;

@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24
     upload_dir: str = "./uploads"
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     # Resolved relative to project root when a relative path is given
     restaurant_source_path: str = str(_PROJECT_ROOT / "data" / "source" / "restaurant_transactions.xlsx")
     reports_dir: str = str(_PROJECT_ROOT / "data" / "reports")
