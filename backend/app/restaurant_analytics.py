@@ -29,6 +29,7 @@ class FilterParams:
     menu_group: str | None = None
     order_type: str | None = None
     settlement: str | None = None
+    user_id: int | None = None
 
 
 def _apply_filters(query: Query, filters: FilterParams) -> Query:
@@ -46,11 +47,16 @@ def _apply_filters(query: Query, filters: FilterParams) -> Query:
         query = query.filter(TransactionLine.order_type == filters.order_type)
     if filters.settlement:
         query = query.filter(TransactionLine.settlement == filters.settlement)
+    if filters.user_id is not None:
+        query = query.filter(TransactionLine.user_id == filters.user_id)
     return query
 
 
 def _base_query(db: Session, filters: FilterParams) -> Query:
-    return _apply_filters(db.query(TransactionLine), filters)
+    query = db.query(TransactionLine)
+    if filters.user_id is not None:
+        query = query.filter(TransactionLine.user_id == filters.user_id)
+    return _apply_filters(query, filters)
 
 
 def _period_kpis(db: Session, filters: FilterParams) -> dict[str, Any]:
@@ -102,6 +108,7 @@ def get_kpis(db: Session, filters: FilterParams) -> dict[str, Any]:
                 menu_group=filters.menu_group,
                 order_type=filters.order_type,
                 settlement=filters.settlement,
+                user_id=filters.user_id,
             )
             previous = _period_kpis(db, prev_filters)
             result["comparison"] = {
@@ -120,11 +127,15 @@ def revenue_trend(db: Session, filters: FilterParams, granularity: str = "day") 
     if gran not in {"day", "week", "month"}:
         gran = "day"
 
-    # SQLite-friendly date truncation via strftime
-    if gran == "day":
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        formats = {"day": 'YYYY-MM-DD', "week": 'IYYY-"W"IW', "month": "YYYY-MM"}
+        bucket = func.to_char(
+            func.date_trunc(gran, TransactionLine.order_datetime), formats[gran]
+        )
+    elif gran == "day":
         bucket = func.strftime("%Y-%m-%d", TransactionLine.order_datetime)
     elif gran == "week":
-        # ISO-like week key: year-week
         bucket = func.strftime("%Y-W%W", TransactionLine.order_datetime)
     else:
         bucket = func.strftime("%Y-%m", TransactionLine.order_datetime)
@@ -399,10 +410,11 @@ def transactions_page(
     }
 
 
-def filter_options(db: Session) -> dict[str, Any]:
+def filter_options(db: Session, user_id: int) -> dict[str, Any]:
     def distinct(col) -> list[str]:
         rows = (
             db.query(col)
+            .filter(TransactionLine.user_id == user_id)
             .filter(col.isnot(None))
             .distinct()
             .order_by(col)
@@ -413,7 +425,7 @@ def filter_options(db: Session) -> dict[str, Any]:
     date_bounds = db.query(
         func.min(TransactionLine.order_datetime),
         func.max(TransactionLine.order_datetime),
-    ).one()
+    ).filter(TransactionLine.user_id == user_id).one()
     return {
         "brands": distinct(TransactionLine.brand),
         "outlets": distinct(TransactionLine.outlet_name),

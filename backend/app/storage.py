@@ -6,6 +6,7 @@ and do not use this storage.
 """
 
 from io import BytesIO
+from pathlib import Path, PurePosixPath
 
 import pandas as pd
 from fastapi import HTTPException, status
@@ -49,6 +50,44 @@ def _s3_client():
 
 def _object_key(user_id: int, dataset_id: int) -> str:
     return f"datasets/{user_id}/{dataset_id}.csv"
+
+
+def save_private_object(key: str, body: bytes, content_type: str) -> str:
+    _require_persistent_storage()
+    if settings.object_storage_configured():
+        try:
+            _s3_client().put_object(
+                Bucket=settings.s3_bucket.strip(),
+                Key=key,
+                Body=body,
+                ContentType=content_type,
+            )
+        except (BotoCoreError, ClientError):
+            raise _storage_http_error("saved") from None
+        return f"s3://{settings.s3_bucket.strip()}/{key}"
+
+    path = settings.resolve_upload_dir() / Path(*PurePosixPath(key).parts)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(body)
+    return str(path)
+
+
+def load_private_object(location: str) -> bytes:
+    if location.startswith("s3://"):
+        if not settings.object_storage_configured():
+            raise HTTPException(status_code=503, detail=PERSISTENT_STORAGE_DETAIL)
+        bucket, _, key = location[len("s3://") :].partition("/")
+        if not bucket or not key or bucket != settings.s3_bucket.strip():
+            raise HTTPException(status_code=404, detail="Stored file not found.")
+        try:
+            result = _s3_client().get_object(Bucket=bucket, Key=key)
+            return result["Body"].read()
+        except (BotoCoreError, ClientError):
+            raise _storage_http_error("read") from None
+    path = Path(location)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Stored file not found.")
+    return path.read_bytes()
 
 
 def save_dataset_csv(user_id: int, dataset_id: int, df: pd.DataFrame) -> str:

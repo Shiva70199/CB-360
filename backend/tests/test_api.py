@@ -28,6 +28,7 @@ def client(tmp_path, monkeypatch):
     upload_dir.mkdir()
     monkeypatch.setattr("app.config.settings.upload_dir", str(upload_dir))
     monkeypatch.setattr("app.services.settings.upload_dir", str(upload_dir))
+    monkeypatch.setattr("app.config.settings.storage_backend", "local")
 
     def override_get_db():
         db = TestingSessionLocal()

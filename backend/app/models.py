@@ -87,6 +87,7 @@ class TransactionLine(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     import_batch_id: Mapped[int] = mapped_column(ForeignKey("import_batches.id"), nullable=False)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     source_row_number: Mapped[int] = mapped_column(Integer, nullable=False)
     bill_no: Mapped[str] = mapped_column(String(128), nullable=False)
     outlet_name: Mapped[str] = mapped_column(String(255), nullable=False)

@@ -7,6 +7,7 @@ import os
 import sys
 
 import pytest
+import pandas as pd
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -17,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from app.database import Base, get_db
 from app.main import app
 from app.models import ImportBatch, TransactionLine  # noqa: F401
+from app.storage import load_private_object
 
 FIXTURE_CSV = """BillNo,Outlet_Name,Brand,Order_Datetime,Group,Item,Price,Quantity,Order_Type,Settlement
 B100,Downtown,CafeOne,15-01-2024 12:30:00,Beverages,Latte,120,2,Dine-In,Card
@@ -45,6 +47,8 @@ def client(tmp_path, monkeypatch):
 
     monkeypatch.setattr("app.config.settings.upload_dir", str(upload_dir))
     monkeypatch.setattr("app.services.settings.upload_dir", str(upload_dir))
+    monkeypatch.setattr("app.storage.settings.upload_dir", str(upload_dir))
+    monkeypatch.setattr("app.config.settings.storage_backend", "local")
     monkeypatch.setattr("app.config.settings.reports_dir", str(reports))
     monkeypatch.setattr("app.etl.settings.reports_dir", str(reports))
     monkeypatch.setattr("app.config.settings.project_root", str(tmp_path))
@@ -195,6 +199,71 @@ class TestRestaurantAnalyticsApi:
         assert "bill_no" in export.text.lower()
         assert "Latte" in export.text
 
+    def test_xlsx_upload_persists_and_updates_analytics(self, client):
+        headers = register_and_login(client, "xlsx-import@test.com")
+        data = pd.DataFrame(
+            [
+                {
+                    "BillNo": "XLSX-1",
+                    "Outlet_Name": "Excel Outlet",
+                    "Brand": "CB360",
+                    "Order_Datetime": "2024-01-15 12:30:00",
+                    "Group": "Food",
+                    "Item": "Excel Meal",
+                    "Price": 250,
+                    "Quantity": 2,
+                    "Order_Type": "Dine-In",
+                    "Settlement": "Card",
+                }
+            ]
+        )
+        content = io.BytesIO()
+        data.to_excel(content, index=False, engine="openpyxl")
+        content.seek(0)
+        response = client.post(
+            "/restaurant/imports/upload",
+            headers=headers,
+            files={
+                "file": (
+                    "restaurant.xlsx",
+                    content,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["data"]["valid_rows"] == 1
+        assert client.get("/restaurant/kpis", headers=headers).json()["data"]["total_revenue"] == 500.0
+
+    def test_upload_30000_csv_persists_history_and_analytics(self, client):
+        headers = register_and_login(client, "large-import@test.com")
+        lines = ["BillNo,Outlet_Name,Brand,Order_Datetime,Group,Item,Price,Quantity,Order_Type,Settlement"]
+        lines.extend(
+            f"B{i:05d},Outlet{i % 10},CB360,2024-01-15 12:{i % 60:02d}:00,Food,Item{i % 20},{100 + i % 10},1,Dine-In,Card"
+            for i in range(30000)
+        )
+        original = ("\n".join(lines) + "\n").encode("utf-8")
+        response = client.post(
+            "/restaurant/imports/upload",
+            headers=headers,
+            files={"file": ("large-30000.csv", io.BytesIO(original), "text/csv")},
+        )
+        assert response.status_code == 200, response.text
+        batch = response.json()["data"]
+        assert batch["total_rows"] == batch["valid_rows"] == 30000
+        assert batch["rejected_rows"] == 0
+
+        history = client.get("/restaurant/imports", headers=headers).json()["data"]
+        assert [item["id"] for item in history] == [batch["id"]]
+        assert load_private_object(history[0]["source_path"]) == original
+
+        kpis = client.get("/restaurant/kpis", headers=headers).json()["data"]
+        assert kpis["total_transactions"] == 30000
+        transactions = client.get("/restaurant/transactions?page_size=10", headers=headers).json()["data"]
+        assert transactions["total"] == 30000
+        assert len(transactions["items"]) == 10
+        assert client.get("/restaurant/trends", headers=headers).status_code == 200
+
     def test_health_metrics(self, client):
         headers = register_and_login(client, "health@test.com")
         import_fixture(client, headers)
@@ -211,3 +280,47 @@ class TestRestaurantAnalyticsApi:
         assert data["total_revenue"] == 90.0
         assert data["total_orders"] == 1
         assert data["total_transactions"] == 1
+
+    def test_imports_reports_and_analytics_are_isolated_by_user(self, client):
+        owner_headers = register_and_login(client, "isolated-owner@test.com")
+        other_headers = register_and_login(client, "isolated-other@test.com")
+        owner_batch = import_fixture(client, owner_headers)
+
+        other_file = FIXTURE_CSV.replace("Latte", "OtherUserItem")
+        response = client.post(
+            "/restaurant/imports/upload",
+            headers=other_headers,
+            files={"file": ("other.csv", io.BytesIO(other_file.encode("utf-8")), "text/csv")},
+        )
+        assert response.status_code == 200, response.text
+        other_batch = response.json()["data"]
+
+        owner_kpis = client.get("/restaurant/kpis", headers=owner_headers).json()["data"]
+        other_kpis = client.get("/restaurant/kpis", headers=other_headers).json()["data"]
+        assert owner_kpis["total_revenue"] == 1010.0
+        assert other_kpis["total_revenue"] == 1010.0
+
+        owner_rows = client.get("/restaurant/transactions", headers=owner_headers).json()["data"]
+        other_rows = client.get("/restaurant/transactions", headers=other_headers).json()["data"]
+        assert "OtherUserItem" not in {row["item"] for row in owner_rows["items"]}
+        assert "OtherUserItem" in {row["item"] for row in other_rows["items"]}
+
+        owner_imports = client.get("/restaurant/imports", headers=owner_headers).json()["data"]
+        other_imports = client.get("/restaurant/imports", headers=other_headers).json()["data"]
+        assert [item["id"] for item in owner_imports] == [owner_batch["id"]]
+        assert [item["id"] for item in other_imports] == [other_batch["id"]]
+        assert load_private_object(other_imports[0]["source_path"]) == other_file.encode("utf-8")
+
+        owner_report = client.get(f"/restaurant/imports/{owner_batch['id']}/report", headers=owner_headers)
+        assert owner_report.status_code == 200
+        assert client.get(
+            f"/restaurant/imports/{owner_batch['id']}/report", headers=other_headers
+        ).status_code == 404
+
+        forced = client.post(
+            "/restaurant/imports/upload?force=true",
+            headers=other_headers,
+            files={"file": ("other.csv", io.BytesIO(other_file.encode("utf-8")), "text/csv")},
+        )
+        assert forced.status_code == 200
+        assert client.get("/restaurant/kpis", headers=owner_headers).json()["data"]["total_transactions"] == 4

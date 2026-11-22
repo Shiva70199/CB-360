@@ -1,14 +1,19 @@
 import os
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from botocore.exceptions import ClientError
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.pool import NullPool
 from sqlalchemy.schema import CreateTable
 
 from app.auth import hash_password, verify_password
+from app.config import Settings, settings
 from app.database import _build_engine, normalize_database_url
 from app.main import app
-from app.models import User
+from app.models import TransactionLine, User
+from app.storage import save_private_object
 
 
 def test_normalize_postgres_schemes():
@@ -27,6 +32,7 @@ def test_health_live_does_not_require_postgres():
     health = client.get("/health")
     assert live.status_code == 200
     assert live.json()["status"] == "ok"
+    assert health.headers["x-request-id"]
     assert health.status_code == 200
     assert health.json()["status"] == "ok"
 
@@ -83,6 +89,61 @@ def test_user_model_matches_postgres_users_table():
     assert User.__tablename__ == "users"
     for column in ("id", "email", "hashed_password", "created_at"):
         assert column in ddl
+
+
+def test_transaction_line_owner_column_is_nullable_and_references_users():
+    column = TransactionLine.__table__.c.user_id
+    assert column.nullable is True
+    assert next(iter(column.foreign_keys)).target_fullname == "users.id"
+    assert any(index.name == "ix_transaction_lines_user_id" for index in TransactionLine.__table__.indexes)
+
+
+def test_neon_aws_and_explicit_s3_environment_names_are_supported():
+    aws_settings = Settings(
+        storage_backend="s3",
+        s3_bucket="cb360-datasets",
+        aws_access_key_id="aws-key",
+        aws_secret_access_key="aws-secret",
+        aws_endpoint_url_s3="https://storage.example.test",
+        aws_region="us-east-1",
+    )
+    assert aws_settings.object_storage_configured()
+    assert aws_settings.resolve_s3_endpoint_url() == "https://storage.example.test"
+    assert aws_settings.resolve_s3_region() == "us-east-1"
+
+    s3_settings = Settings(
+        storage_backend="neon",
+        s3_bucket="cb360-datasets",
+        s3_access_key_id="s3-key",
+        s3_secret_access_key="s3-secret",
+        s3_endpoint_url="https://storage.example.test",
+        s3_region="us-east-1",
+    )
+    assert s3_settings.object_storage_configured()
+    assert s3_settings.resolve_s3_access_key_id() == "s3-key"
+
+    assert not Settings(storage_backend="local").object_storage_configured()
+
+
+def test_storage_provider_error_is_sanitized(monkeypatch):
+    monkeypatch.setattr(settings, "storage_backend", "s3")
+    monkeypatch.setattr(settings, "s3_bucket", "cb360-datasets")
+    monkeypatch.setattr(settings, "s3_access_key_id", "test-key")
+    monkeypatch.setattr(settings, "s3_secret_access_key", "test-secret")
+
+    class FailedS3Client:
+        def put_object(self, **kwargs):
+            raise ClientError(
+                {"Error": {"Code": "AccessDenied", "Message": "private provider details"}},
+                "PutObject",
+            )
+
+    monkeypatch.setattr("app.storage._s3_client", lambda: FailedS3Client())
+    with pytest.raises(HTTPException) as exc_info:
+        save_private_object("restaurant-imports/1/test.csv", b"data", "text/csv")
+    assert exc_info.value.status_code == 503
+    assert "private provider details" not in exc_info.value.detail
+    assert "test-secret" not in exc_info.value.detail
 
 
 def test_postgres_engine_disables_prepared_statements_and_pooling():

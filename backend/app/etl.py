@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import ImportBatch, TransactionLine
+from app.storage import load_private_object, save_private_object
 
 # Canonical column -> accepted aliases (normalized: strip + lower + collapse spaces/underscores)
 COLUMN_ALIASES: dict[str, set[str]] = {
@@ -208,19 +209,13 @@ def _str_or_none(value: Any) -> str | None:
     return text
 
 
-def _ensure_reports_dir() -> Path:
-    reports = settings.resolve_reports_dir()
-    reports.mkdir(parents=True, exist_ok=True)
-    return reports
-
-
 def _find_successful_batch(db: Session, file_hash: str, user_id: int | None = None) -> ImportBatch | None:
     query = db.query(ImportBatch).filter(
         ImportBatch.file_hash == file_hash,
         ImportBatch.status == "success",
     )
     if user_id is not None:
-        query = query.filter(ImportBatch.user_id.in_([None, user_id]))
+        query = query.filter(ImportBatch.user_id == user_id)
     return query.order_by(ImportBatch.imported_at.desc()).first()
 
 
@@ -314,7 +309,7 @@ def _validate_and_prepare_rows(
     return valid_rows, rejected, missing_counts
 
 
-def _bulk_insert_lines(db: Session, batch_id: int, rows: list[dict[str, Any]]) -> None:
+def _bulk_insert_lines(db: Session, batch_id: int, user_id: int | None, rows: list[dict[str, Any]]) -> None:
     for i in range(0, len(rows), CHUNK_SIZE):
         chunk = rows[i : i + CHUNK_SIZE]
         db.bulk_insert_mappings(
@@ -322,6 +317,7 @@ def _bulk_insert_lines(db: Session, batch_id: int, rows: list[dict[str, Any]]) -
             [
                 {
                     "import_batch_id": batch_id,
+                    "user_id": user_id,
                     **row,
                 }
                 for row in chunk
@@ -331,8 +327,6 @@ def _bulk_insert_lines(db: Session, batch_id: int, rows: list[dict[str, Any]]) -
 
 
 def _write_report(batch: ImportBatch, rejected: list[dict[str, Any]], missing_counts: dict[str, int]) -> str:
-    reports = _ensure_reports_dir()
-    report_path = reports / f"import_batch_{batch.id}_{batch.file_hash[:12]}.json"
     payload = {
         "import_batch_id": batch.id,
         "filename": batch.filename,
@@ -347,8 +341,10 @@ def _write_report(batch: ImportBatch, rejected: list[dict[str, Any]], missing_co
         "notes": batch.notes,
         "reused": batch.notes == "reused_existing_import" if batch.notes else False,
     }
-    report_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
-    return str(report_path)
+    report_bytes = json.dumps(payload, indent=2, default=str).encode("utf-8")
+    user_key = str(batch.user_id) if batch.user_id is not None else "unowned"
+    key = f"restaurant-reports/{user_key}/{batch.id}_{batch.file_hash[:12]}.json"
+    return save_private_object(key, report_bytes, "application/json")
 
 
 def import_restaurant_file(
@@ -402,7 +398,10 @@ def import_restaurant_file(
             return existing
     else:
         # Force re-import: drop prior batches with this hash so KPIs are not double-counted
-        prior = db.query(ImportBatch).filter(ImportBatch.file_hash == file_hash).all()
+        prior_query = db.query(ImportBatch).filter(ImportBatch.file_hash == file_hash)
+        if user_id is not None:
+            prior_query = prior_query.filter(ImportBatch.user_id == user_id)
+        prior = prior_query.all()
         for old in prior:
             db.delete(old)
         db.flush()
@@ -424,6 +423,14 @@ def import_restaurant_file(
     db.flush()
 
     try:
+        should_persist_source = file_bytes is not None or settings.is_production() or settings.object_storage_configured()
+        if should_persist_source:
+            safe_filename = fname.replace("\\", "/").rsplit("/", 1)[-1]
+            suffix = Path(safe_filename).suffix.lower()
+            object_name = f"original{suffix}" if suffix else "original"
+            source_key = f"restaurant-imports/{user_id if user_id is not None else 'unowned'}/{batch.id}/{object_name}"
+            batch.source_path = save_private_object(source_key, data, "application/octet-stream")
+
         if df.empty:
             raise ValueError("File contains no data rows.")
 
@@ -433,7 +440,7 @@ def import_restaurant_file(
         batch.rejected_rows = len(rejected)
         batch.missing_values_json = json.dumps(missing_counts)
 
-        _bulk_insert_lines(db, batch.id, valid_rows)
+        _bulk_insert_lines(db, batch.id, user_id, valid_rows)
         batch.status = "success" if valid_rows else "failed"
         if not valid_rows:
             batch.notes = "No valid rows after validation."
@@ -456,7 +463,7 @@ def import_restaurant_file(
             missing_values_json=getattr(batch, "missing_values_json", "{}") or "{}",
             source_path=source_path,
             user_id=user_id,
-            notes=str(exc)[:2000],
+            notes=f"Import processing failed ({type(exc).__name__}).",
         )
         db.add(failed)
         try:

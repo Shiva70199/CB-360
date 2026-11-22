@@ -1,8 +1,9 @@
 import os
 import sys
 import threading
+import logging
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Request, status
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
@@ -14,6 +15,7 @@ _MISSING_DATABASE_DETAIL = (
     "DATABASE_URL is not configured. Set the Neon pooled Postgres connection string "
     "on the backend Vercel project. Production does not fall back to SQLite."
 )
+logger = logging.getLogger("cb360.database")
 
 
 def normalize_database_url(url: str) -> str:
@@ -79,6 +81,8 @@ def database_status() -> tuple[bool, str]:
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
+            if str(engine.url).startswith("postgresql"):
+                connection.execute(text("SELECT user_id FROM transaction_lines LIMIT 0"))
         return True, "ok"
     except Exception:
         return False, "unavailable"
@@ -138,7 +142,7 @@ def _quiet_session_call(db, method: str) -> None:
         print(f"db_{method}_failed {type(exc).__name__}", file=sys.stderr)
 
 
-def get_db():
+def get_db(request: Request):
     if SessionLocal is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -153,7 +157,12 @@ def get_db():
         raise
     except SQLAlchemyError as exc:
         _quiet_session_call(db, "rollback")
-        print(f"database_request_failed {type(exc).__name__}", file=sys.stderr)
+        logger.error(
+            "api_failure request_id=%s endpoint=%s failure_stage=db_transaction exception_type=%s http_status=503",
+            getattr(request.state, "request_id", "unknown"),
+            request.url.path,
+            type(exc).__name__,
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="The database could not complete that request.",

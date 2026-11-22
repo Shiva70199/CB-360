@@ -48,8 +48,13 @@ def db_session(tmp_path, monkeypatch):
 
     reports = tmp_path / "reports"
     reports.mkdir()
+    uploads = tmp_path / "uploads"
+    uploads.mkdir()
     monkeypatch.setattr("app.config.settings.reports_dir", str(reports))
     monkeypatch.setattr("app.etl.settings.reports_dir", str(reports))
+    monkeypatch.setattr("app.config.settings.upload_dir", str(uploads))
+    monkeypatch.setattr("app.storage.settings.upload_dir", str(uploads))
+    monkeypatch.setattr("app.config.settings.storage_backend", "local")
     monkeypatch.setattr("app.config.settings.project_root", str(tmp_path))
     monkeypatch.setattr("app.etl.settings.project_root", str(tmp_path))
 

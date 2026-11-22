@@ -34,10 +34,14 @@ class Settings(BaseSettings):
     s3_access_key_id: str = ""
     s3_secret_access_key: str = ""
     s3_endpoint_url: str = ""
-    s3_region: str = "us-east-1"
+    s3_region: str = ""
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_endpoint_url_s3: str = ""
+    aws_region: str = ""
 
     class Config:
-        env_file = (".env", "../.env.local")
+        env_file = ".env"
         extra = "ignore"
 
     def is_production(self) -> bool:
@@ -53,7 +57,8 @@ class Settings(BaseSettings):
 
     def object_storage_configured(self) -> bool:
         return bool(
-            self.s3_bucket.strip()
+            self.storage_backend.strip().lower() in {"s3", "neon"}
+            and self.s3_bucket.strip()
             and self.resolve_s3_access_key_id()
             and self.resolve_s3_secret_access_key()
         )
@@ -84,16 +89,16 @@ class Settings(BaseSettings):
         return path
 
     def resolve_s3_access_key_id(self) -> str:
-        return (self.s3_access_key_id.strip() or os.getenv("AWS_ACCESS_KEY_ID", "").strip())
+        return (self.s3_access_key_id.strip() or self.aws_access_key_id.strip() or os.getenv("AWS_ACCESS_KEY_ID", "").strip())
 
     def resolve_s3_secret_access_key(self) -> str:
-        return (self.s3_secret_access_key.strip() or os.getenv("AWS_SECRET_ACCESS_KEY", "").strip())
+        return (self.s3_secret_access_key.strip() or self.aws_secret_access_key.strip() or os.getenv("AWS_SECRET_ACCESS_KEY", "").strip())
 
     def resolve_s3_endpoint_url(self) -> str:
-        return (self.s3_endpoint_url.strip() or os.getenv("AWS_ENDPOINT_URL_S3", "").strip())
+        return (self.s3_endpoint_url.strip() or self.aws_endpoint_url_s3.strip() or os.getenv("AWS_ENDPOINT_URL_S3", "").strip())
 
     def resolve_s3_region(self) -> str:
-        return (self.s3_region.strip() or os.getenv("AWS_REGION", "").strip() or "us-east-1")
+        return (self.s3_region.strip() or self.aws_region.strip() or os.getenv("AWS_REGION", "").strip() or "us-east-1")
 
 
 settings = Settings()

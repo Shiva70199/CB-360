@@ -1,4 +1,5 @@
-import sys
+import logging
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +16,15 @@ if engine is not None and str(engine.url).startswith("sqlite"):
     Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="CB 360 API", version="1.1.0")
+logger = logging.getLogger("cb360.api")
+
+
+@app.middleware("http")
+async def attach_request_id(request: Request, call_next):
+    request.state.request_id = str(uuid4())
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request.state.request_id
+    return response
 
 # Browsers treat localhost and 127.0.0.1 as different origins.
 _LOCAL_ORIGINS = ("http://localhost:3000", "http://127.0.0.1:3000")
@@ -46,7 +56,12 @@ async def unexpected_error(request: Request, exc: Exception):
     if isinstance(exc, HTTPException):
         return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
     # Log only the type. Database exceptions can include the connection string.
-    print(f"unhandled {type(exc).__name__}", file=sys.stderr)
+    logger.error(
+        "api_failure request_id=%s endpoint=%s failure_stage=unhandled exception_type=%s http_status=500",
+        getattr(request.state, "request_id", "unknown"),
+        request.url.path,
+        type(exc).__name__,
+    )
     return JSONResponse({"detail": "The API could not complete that request."}, status_code=500)
 
 
